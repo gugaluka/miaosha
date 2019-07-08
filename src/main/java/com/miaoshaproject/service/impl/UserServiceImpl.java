@@ -16,6 +16,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import javax.sound.midi.Soundbank;
+
 @Service
 public class UserServiceImpl implements UserService {
 
@@ -67,10 +69,13 @@ public class UserServiceImpl implements UserService {
         if(userDO == null) {
             throw new BusinessException(EmBusinessError.USER_LOGIN_FAIL);
         }
-        UserPasswordDO userPasswordDO = userPasswordDOMapper.selectByUserId(userDO.getId());
+        int userId = userDO.getId();
+        System.out.println(userId);
+        UserPasswordDO userPasswordDO = userPasswordDOMapper.selectByUserId(userId);
         UserModel userModel = convertFromDataObject(userDO, userPasswordDO);
 
-        if(StringUtils.equals(userModel.getEncrptPassword(), encrptPassword)) {
+        String ePass = userModel.getEncrptPassword();
+        if(!StringUtils.equals(userModel.getEncrptPassword(), encrptPassword)) {
             throw new BusinessException(EmBusinessError.USER_LOGIN_FAIL);
         }
 

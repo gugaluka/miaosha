@@ -83,6 +83,12 @@ public class ItemServiceImpl implements ItemService {
         return false;
     }
 
+    @Override
+    @Transactional
+    public void increaseSales(Integer itemId, Integer amount) throws BusinessException {
+        itemDOMapper.increaseSales(itemId, amount);
+    }
+
     private ItemDO convertFromItemDOFromItemModel(ItemModel itemModel) {
         if (itemModel == null) {
             return null;

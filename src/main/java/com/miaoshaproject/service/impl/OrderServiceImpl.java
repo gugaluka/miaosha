@@ -1,7 +1,9 @@
 package com.miaoshaproject.service.impl;
 
 import com.miaoshaproject.dao.OrderDOMapper;
+import com.miaoshaproject.dao.SequenceDOMapper;
 import com.miaoshaproject.dataobject.OrderDO;
+import com.miaoshaproject.dataobject.SequenceDO;
 import com.miaoshaproject.error.BusinessException;
 import com.miaoshaproject.error.EmBusinessError;
 import com.miaoshaproject.service.ItemService;
@@ -13,9 +15,12 @@ import com.miaoshaproject.service.model.UserModel;
 import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 
 @Service
 public class OrderServiceImpl implements OrderService {
@@ -25,9 +30,12 @@ public class OrderServiceImpl implements OrderService {
 
     @Autowired
     private UserService userService;
-    
+
     @Autowired
     private OrderDOMapper orderDOMapper;
+
+    @Autowired
+    private SequenceDOMapper sequenceDOMapper;
 
     @Override
     @Transactional
@@ -47,7 +55,7 @@ public class OrderServiceImpl implements OrderService {
 
         //落单减库存
         boolean result = itemService.decreaseStock(itemId, amount);
-        if (result) {
+        if (!result) {
             throw new BusinessException(EmBusinessError.STOCK_NOT_ENOUGH);
         }
 
@@ -59,15 +67,21 @@ public class OrderServiceImpl implements OrderService {
         orderModel.setItemPrice(itemModel.getPrice());
         orderModel.setOrderPrice(itemModel.getPrice().multiply(new BigDecimal(amount)));
         //生成交易流水号
+        orderModel.setId(generateOrderNo());
 
+        try {
+            OrderDO orderDO = convertFromOrderModel(orderModel);
+            orderDOMapper.insertSelective(orderDO);
 
-        OrderDO orderDO = convertFromOrderModel(orderModel);
-        orderDOMapper.insertSelective(orderDO);
+            //加上商品销量
+            itemService.increaseSales(itemId, amount);
+        } catch (Exception e) {
+            e.printStackTrace();
+            throw new BusinessException(EmBusinessError.PARAMETER_VALIDATION_ERROR);
+        }
 
         //返回前端
-
-
-        return null;
+        return orderModel;
     }
 
     private OrderDO convertFromOrderModel(OrderModel orderModel) {
@@ -77,18 +91,35 @@ public class OrderServiceImpl implements OrderService {
 
         OrderDO orderDO = new OrderDO();
         BeanUtils.copyProperties(orderModel, orderDO);
+        orderDO.setItemPrice(orderModel.getItemPrice().doubleValue());
+        orderDO.setOrderPrice(orderModel.getItemPrice().doubleValue());
         return orderDO;
     }
 
-    private String generateOrderNo() {
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public String generateOrderNo() {
+        StringBuilder sb = new StringBuilder();
         //订单号16位
         //前八位时间信息
-
+        LocalDateTime now = LocalDateTime.now();
+        String nowDate = now.format(DateTimeFormatter.BASIC_ISO_DATE.ISO_DATE).replace("-", "");
+        sb.append(nowDate);
         //中间六位为自增序列
+        int sequence = 0;
+        SequenceDO sequenceDO = sequenceDOMapper.getSequenceByName("order_info");
+        sequence = sequenceDO.getCurrentValue();
+        sequenceDO.setCurrentValue(sequence + sequenceDO.getStep());
+        sequenceDOMapper.updateByPrimaryKeySelective(sequenceDO);
+        String sequenceStr = String.valueOf(sequence);
+        sb.append(sequenceStr);
+        for (int i = 0; i < 6 - sequenceStr.length(); i++) {
+            sb.append(0);
+        }
 
         //最后2位为分库分表位
+        sb.append("00");
 
-
-        return null;
+        return sb.toString();
     }
+
 }
