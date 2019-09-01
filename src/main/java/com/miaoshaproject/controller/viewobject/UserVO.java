@@ -1,6 +1,8 @@
 package com.miaoshaproject.controller.viewobject;
 
-public class UserVO {
+import java.io.Serializable;
+
+public class UserVO implements Serializable {
 
     private Integer id;
     private String name;

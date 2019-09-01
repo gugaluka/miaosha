@@ -15,6 +15,13 @@ public interface ItemService {
 
     boolean decreaseStock(Integer itemId, Integer amount) throws BusinessException;
 
+    boolean increaseStock(Integer itemId, Integer amount) throws BusinessException;
+
     void increaseSales(Integer itemId, Integer amount) throws BusinessException;
+
+    boolean asyncReduceStock(Integer itemId, Integer amount) throws BusinessException;
+
+    //item及promo mode缓存模型
+    ItemModel getItemByIdInCache(Integer id);
 
 }

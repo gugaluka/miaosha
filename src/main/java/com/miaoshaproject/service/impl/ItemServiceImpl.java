@@ -1,24 +1,37 @@
 package com.miaoshaproject.service.impl;
 
+import com.alibaba.fastjson.JSON;
 import com.miaoshaproject.dao.ItemDOMapper;
 import com.miaoshaproject.dao.ItemStockDOMapper;
 import com.miaoshaproject.dataobject.ItemDO;
 import com.miaoshaproject.dataobject.ItemStockDO;
 import com.miaoshaproject.error.BusinessException;
 import com.miaoshaproject.error.EmBusinessError;
+import com.miaoshaproject.mq.MqProducer;
 import com.miaoshaproject.service.ItemService;
 import com.miaoshaproject.service.PromoService;
 import com.miaoshaproject.service.model.ItemModel;
 import com.miaoshaproject.service.model.PromoModel;
 import com.miaoshaproject.validator.ValidationResult;
 import com.miaoshaproject.validator.ValidatorImp;
+import org.apache.rocketmq.client.exception.MQBrokerException;
+import org.apache.rocketmq.client.exception.MQClientException;
+import org.apache.rocketmq.client.producer.SendResult;
+import org.apache.rocketmq.common.message.Message;
+import org.apache.rocketmq.remoting.exception.RemotingException;
 import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.nio.charset.Charset;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
 @Service
@@ -35,6 +48,13 @@ public class ItemServiceImpl implements ItemService {
 
     @Autowired
     private PromoService promoService;
+
+    @Autowired
+    private RedisTemplate redisTemplate;
+
+    @Autowired
+    private MqProducer mqProducer;
+
 
     @Override
     @Transactional
@@ -87,10 +107,34 @@ public class ItemServiceImpl implements ItemService {
     @Override
     @Transactional
     public boolean decreaseStock(Integer itemId, Integer amount) throws BusinessException {
-        int affectedRow = itemStockDOMapper.decreaseStock(itemId, amount);
-        if (affectedRow > 0) {
+        long result = redisTemplate.opsForValue().increment("promo_item_stock_" + itemId, amount * -1);
+        if (result >= 0) {
+
+//            boolean mqResult = mqProducer.asyncReduceStock(itemId, amount);
+//            if (!mqResult) {
+//                redisTemplate.opsForValue().increment("promo_item_stock_" + itemId, amount.intValue());
+//            }
+
             return true;
         }
+        redisTemplate.opsForValue().increment("promo_item_stock_" + itemId, amount.intValue());
+        return false;
+
+//        int affectedRow = itemStockDOMapper.decreaseStock(itemId, amount);
+//        if (affectedRow > 0) {
+//            return true;
+//        }
+//        return false;
+    }
+
+    @Override
+    public boolean increaseStock(Integer itemId, Integer amount) throws BusinessException {
+        long result = redisTemplate.opsForValue().increment("promo_item_stock_" + itemId, amount);
+        if (result >= 0) {
+
+            return true;
+        }
+        redisTemplate.opsForValue().increment("promo_item_stock_" + itemId, amount.intValue());
         return false;
     }
 
@@ -98,6 +142,23 @@ public class ItemServiceImpl implements ItemService {
     @Transactional
     public void increaseSales(Integer itemId, Integer amount) throws BusinessException {
         itemDOMapper.increaseSales(itemId, amount);
+    }
+
+    @Override
+    public boolean asyncReduceStock(Integer itemId, Integer amount) throws BusinessException {
+        boolean mqResult = mqProducer.asyncReduceStock(itemId, amount);
+        return mqResult;
+    }
+
+    @Override
+    public ItemModel getItemByIdInCache(Integer id) {
+        ItemModel itemModel = (ItemModel) redisTemplate.opsForValue().get("item_validate_" + id);
+        if (itemModel == null) {
+            itemModel = this.getItemById(id);
+            redisTemplate.opsForValue().set("item_validate_" + id, itemModel);
+            redisTemplate.expire("item_validate_" + id, 10, TimeUnit.MINUTES);
+        }
+        return itemModel;
     }
 
     private ItemDO convertFromItemDOFromItemModel(ItemModel itemModel) {
