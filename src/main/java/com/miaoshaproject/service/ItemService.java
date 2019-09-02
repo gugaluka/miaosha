@@ -24,4 +24,6 @@ public interface ItemService {
     //item及promo mode缓存模型
     ItemModel getItemByIdInCache(Integer id);
 
+    String initStockLog(Integer itemId, Integer amount);
+
 }

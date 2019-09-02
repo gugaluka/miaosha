@@ -3,8 +3,10 @@ package com.miaoshaproject.service.impl;
 import com.miaoshaproject.dao.OrderDOMapper;
 import com.miaoshaproject.dao.PromoDOMapper;
 import com.miaoshaproject.dao.SequenceDOMapper;
+import com.miaoshaproject.dao.StockLogDOMapper;
 import com.miaoshaproject.dataobject.OrderDO;
 import com.miaoshaproject.dataobject.SequenceDO;
+import com.miaoshaproject.dataobject.StockLogDO;
 import com.miaoshaproject.error.BusinessException;
 import com.miaoshaproject.error.EmBusinessError;
 import com.miaoshaproject.service.ItemService;
@@ -43,33 +45,36 @@ public class OrderServiceImpl implements OrderService {
     @Autowired
     private PromoDOMapper promoDOMapper;
 
+    @Autowired
+    private StockLogDOMapper stockLogDOMapper;
+
     @Override
     @Transactional
-    public OrderModel createOrder(Integer userId, Integer itemId, Integer promoId, Integer amount) throws BusinessException {
+    public OrderModel createOrder(Integer userId, Integer itemId, Integer promoId, Integer amount, String stockLogId) throws BusinessException {
         //校验下单状态
 //        ItemModel itemModel = itemService.getItemById(itemId);
         ItemModel itemModel = itemService.getItemByIdInCache(itemId);
         if (itemModel == null) {
             throw new BusinessException(EmBusinessError.PARAMETER_VALIDATION_ERROR, "商品信息不存在");
         }
-//        UserModel userModel = userService.getUserById(userId);
-        UserModel userModel = userService.getUserByIdInCache(userId);
-        if (itemModel == null) {
-            throw new BusinessException(EmBusinessError.PARAMETER_VALIDATION_ERROR, "用户信息不存在");
-        }
+////        UserModel userModel = userService.getUserById(userId);
+//        UserModel userModel = userService.getUserByIdInCache(userId);
+//        if (itemModel == null) {
+//            throw new BusinessException(EmBusinessError.PARAMETER_VALIDATION_ERROR, "用户信息不存在");
+//        }
         if (amount < 0 || amount > 99) {
             throw new BusinessException(EmBusinessError.PARAMETER_VALIDATION_ERROR, "数量信息不正确");
         }
 
         //校验活动信息
-        if(promoId != null) {
-            if(promoId.intValue() != itemModel.getPromoModel().getId()) {
-                throw new BusinessException(EmBusinessError.PARAMETER_VALIDATION_ERROR, "活动信息不正确");
-            }
-            if(itemModel.getPromoModel().getStatus().intValue() != 2) {
-                throw new BusinessException(EmBusinessError.PARAMETER_VALIDATION_ERROR, "活动未开始");
-            }
-        }
+//        if(promoId != null) {
+//            if(promoId.intValue() != itemModel.getPromoModel().getId()) {
+//                throw new BusinessException(EmBusinessError.PARAMETER_VALIDATION_ERROR, "活动信息不正确");
+//            }
+//            if(itemModel.getPromoModel().getStatus().intValue() != 2) {
+//                throw new BusinessException(EmBusinessError.PARAMETER_VALIDATION_ERROR, "活动未开始");
+//            }
+//        }
 
         //落单减库存
         boolean result = itemService.decreaseStock(itemId, amount);
@@ -98,22 +103,31 @@ public class OrderServiceImpl implements OrderService {
 
             //加上商品销量
             itemService.increaseSales(itemId, amount);
+
+            //设置库存流水状态为成功
+            StockLogDO stockLogDO = stockLogDOMapper.selectByPrimaryKey(stockLogId);
+            if(stockLogDO == null) {
+                throw new BusinessException((EmBusinessError.UNKNOWN_ERROR));
+            }
+            stockLogDO.setStatus(2);
+            stockLogDOMapper.updateByPrimaryKeySelective(stockLogDO);
+
         } catch (Exception e) {
             e.printStackTrace();
             throw new BusinessException(EmBusinessError.PARAMETER_VALIDATION_ERROR);
         }
 
-        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronizationAdapter() {
-            @Override
-            public void afterCommit() {
-                try {
-                    boolean mqResult = itemService.asyncReduceStock(itemId, amount);
-                } catch (Exception e) {
-                    e.printStackTrace();
-                }
-
-            }
-        });
+//        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronizationAdapter() {
+//            @Override
+//            public void afterCommit() {
+//                try {
+//                    boolean mqResult = itemService.asyncReduceStock(itemId, amount);
+//                } catch (Exception e) {
+//                    e.printStackTrace();
+//                }
+//
+//            }
+//        });
 
 //        boolean mqResult = itemService.asyncReduceStock(itemId, amount);
 //        if(!mqResult) {
