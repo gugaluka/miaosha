@@ -1,5 +1,6 @@
 package com.miaoshaproject.controller;
 
+import com.google.common.util.concurrent.RateLimiter;
 import com.miaoshaproject.controller.BaseController.BaseController;
 import com.miaoshaproject.controller.viewobject.UserVO;
 import com.miaoshaproject.error.BusinessException;
@@ -11,6 +12,7 @@ import com.miaoshaproject.service.OrderService;
 import com.miaoshaproject.service.PromoService;
 import com.miaoshaproject.service.model.OrderModel;
 import com.miaoshaproject.service.model.UserModel;
+import com.miaoshaproject.util.CodeUtil;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.core.RedisTemplate;
@@ -18,7 +20,12 @@ import org.springframework.stereotype.Controller;
 import org.springframework.web.bind.annotation.*;
 
 import javax.annotation.PostConstruct;
+import javax.imageio.ImageIO;
 import javax.servlet.http.HttpServletRequest;
+import javax.servlet.http.HttpServletResponse;
+import java.awt.image.RenderedImage;
+import java.io.IOException;
+import java.util.Map;
 import java.util.concurrent.*;
 
 @Controller
@@ -45,14 +52,22 @@ public class OrderController extends BaseController {
 
     private ExecutorService executorService;
 
+    private RateLimiter orderCreateRateLimiter;
+
     @PostConstruct
     public void init() {
         executorService = Executors.newFixedThreadPool(20);
+
+        orderCreateRateLimiter = RateLimiter.create(100);
     }
 
     @RequestMapping(value = "/createorder", method = RequestMethod.POST, consumes = "application/x-www-form-urlencoded")
     @ResponseBody
     public CommonReturnType createOrder(@RequestParam(name = "itemId") Integer itemId, @RequestParam(name = "amount") Integer amount, @RequestParam(name = "promoId", required = false) Integer promoId, @RequestParam(name = "promoToken", required = false) String promoToken) throws BusinessException {
+
+        if (!orderCreateRateLimiter.tryAcquire()) {
+            throw new BusinessException(EmBusinessError.RATELIMIT);
+        }
 
 //        Boolean isLogin = (Boolean) httpServletRequest.getSession().getAttribute("IS_LOGIN");
         String token = httpServletRequest.getParameterMap().get("token")[0];
@@ -80,7 +95,7 @@ public class OrderController extends BaseController {
         }
 
         //同步调用线程池的submit方法
-        Future<Object> future= executorService.submit(new Callable<Object>() {
+        Future<Object> future = executorService.submit(new Callable<Object>() {
             @Override
             public Object call() throws Exception {
                 //加入库存流水
@@ -103,10 +118,10 @@ public class OrderController extends BaseController {
         return CommonReturnType.create(null);
     }
 
-    //生成秒杀令牌
-    @RequestMapping(value = "/generatetoken", method = RequestMethod.POST, consumes = "application/x-www-form-urlencoded")
+    //生成验证码
+    @RequestMapping(value = "/generateverifycode", method = {RequestMethod.POST, RequestMethod.GET})
     @ResponseBody
-    public CommonReturnType generateToken(@RequestParam(name = "itemId") Integer itemId, @RequestParam(name = "promoId", required = true) Integer promoId) throws BusinessException {
+    public void generateVerifyCode(HttpServletResponse response) throws BusinessException, IOException {
         String token = httpServletRequest.getParameterMap().get("token")[0];
         if (StringUtils.isBlank(token)) {
             throw new BusinessException(EmBusinessError.USER_NOT_LOGIN, "用户还未登录");
@@ -117,6 +132,36 @@ public class OrderController extends BaseController {
             throw new BusinessException(EmBusinessError.USER_NOT_LOGIN, "用户还未登录");
         }
 
+        Map<String, Object> map = CodeUtil.generateCodeAndPic();
+
+        System.out.println("验证码的值为：" + map.get("code"));
+        redisTemplate.opsForValue().set("verify_code_" + userVO.getId(), map.get("code"));
+        redisTemplate.expire("verify_code_" + userVO.getId(), 10, TimeUnit.MINUTES);
+        ImageIO.write((RenderedImage) map.get("codePic"), "jpeg", response.getOutputStream());
+
+    }
+
+    //生成秒杀令牌
+    @RequestMapping(value = "/generatetoken", method = RequestMethod.POST, consumes = "application/x-www-form-urlencoded")
+    @ResponseBody
+    public CommonReturnType generateToken(@RequestParam(name = "itemId") Integer itemId, @RequestParam(name = "promoId", required = true) Integer promoId, @RequestParam(name = "verifyCode") String verifyCode) throws BusinessException {
+        String token = httpServletRequest.getParameterMap().get("token")[0];
+        if (StringUtils.isBlank(token)) {
+            throw new BusinessException(EmBusinessError.USER_NOT_LOGIN, "用户还未登录");
+        }
+
+        UserVO userVO = (UserVO) redisTemplate.opsForValue().get(token);
+        if (userVO == null) {
+            throw new BusinessException(EmBusinessError.USER_NOT_LOGIN, "用户还未登录");
+        }
+
+        String code = (String) redisTemplate.opsForValue().get("verify_code_" + userVO.getId());
+        if (StringUtils.isEmpty(code)) {
+            throw new BusinessException(EmBusinessError.PARAMETER_VALIDATION_ERROR, "请求非法");
+        }
+        if (!StringUtils.equalsIgnoreCase(code, verifyCode)) {
+            throw new BusinessException(EmBusinessError.PARAMETER_VALIDATION_ERROR, "验证码错误");
+        }
 
         String promoToken = promoService.generateSecondKillToken(promoId, itemId, userVO.getId());
         if (StringUtils.isBlank(promoToken)) {

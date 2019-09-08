@@ -66,6 +66,13 @@
         </button>
     </div>
 
+    <div id="verifyDiv" style="display:none" class="form-actions">
+        <img src=""/>
+        <input type="text" id="verifyContent" value="" />
+        <button class="btn blue" id="verify" type="submit">
+            验证
+        </button>
+    </div>
 </div>
 
 <input type="hidden" id="isInit" value="0" />
@@ -126,21 +133,21 @@
 
     jQuery(document).ready(function () {
 
-        $("#createorder").on("click", function () {
+        $("#verify").on("click", function() {
             var token = window.localStorage["token"];
             if(!token) {
                 alert("没有登录，不能下单");
                 window.location.href="login.html";
                 return false;
             }
-
             $.ajax({
                 type: "POST",
                 contentType: "application/x-www-form-urlencoded",
                 url: "http://" + g_host + "/order/generatetoken?token="+token,
                 data: {
                     "itemId": g_itemVO.id,
-                    "promoId": g_itemVO.promoId
+                    "promoId": g_itemVO.promoId,
+                    "verifyCode": $("#verifyContent").val()
                 },
                 xhrFields: {withCredentials: true},
                 success: function (data) {
@@ -186,8 +193,20 @@
                 }
             });
 
+        })
 
-            return false;
+        $("#createorder").on("click", function () {
+            var token = window.localStorage["token"];
+            if(!token) {
+                alert("没有登录，不能下单");
+                window.location.href="login.html";
+                return false;
+            }
+
+            $("#verifyDiv img").attr("src", "http://" + g_host + "/order/generateverifycode?token=" + token);
+            $("#verifyDiv").show();
+
+
         });
 
         initView();

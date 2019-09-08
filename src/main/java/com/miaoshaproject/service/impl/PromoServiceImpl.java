@@ -1,5 +1,6 @@
 package com.miaoshaproject.service.impl;
 
+import com.google.common.util.concurrent.RateLimiter;
 import com.miaoshaproject.dao.PromoDOMapper;
 import com.miaoshaproject.dataobject.PromoDO;
 import com.miaoshaproject.error.BusinessException;
